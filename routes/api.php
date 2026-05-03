@@ -6,6 +6,7 @@ use App\Http\Controllers\CoachController;
 use App\Http\Controllers\ForumController;
 use App\Http\Controllers\UserController;
 use Illuminate\Support\Facades\Route;
+use App\Http\Controllers\AIController;
 
 /*
 |--------------------------------------------------------------------------
@@ -26,6 +27,11 @@ Route::prefix('auth')->group(function () {
 
 
 Route::middleware('auth:sanctum')->group(function () {
+
+    Route::prefix('ai')->group(function () {
+        Route::post('/chat', [AIController::class, 'chat']);
+        Route::get('/history', [AIController::class, 'getHistory']);
+    });
 
     Route::prefix('auth')->group(function () {
         Route::post('/logout', [AuthController::class, 'logout']);

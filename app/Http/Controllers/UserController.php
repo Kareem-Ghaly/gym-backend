@@ -86,7 +86,7 @@ class UserController extends Controller
         $plan = $this->userService->getAcceptedCoachPlan(auth()->user());
 
         if (!$plan) {
-            return ApiResource::error('No accepted coach plan found', null, 404);
+            return ApiResource::error('No accepted coach plan found', null, 204);
         }
 
         return ApiResource::success([
