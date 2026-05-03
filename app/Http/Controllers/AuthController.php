@@ -1,13 +1,16 @@
 <?php
 
 namespace App\Http\Controllers;
-use app\Models\User;
+
+use App\Models\User;
 use App\Http\Requests\Auth\LoginRequest;
 use App\Http\Requests\Auth\RegisterRequest;
 use App\Http\Resources\ApiResource;
 use App\Http\Resources\UserResource;
 use App\Services\AuthService;
 use Illuminate\Http\JsonResponse;
+use Exception;
+use Illuminate\Support\Facades\Auth;
 
 class AuthController extends Controller
 {
@@ -19,32 +22,42 @@ class AuthController extends Controller
     }
 
     /**
-     * Register (User or Coach)
+     * Register a new User or Coach.
+     * Checks if email is already registered.
      */
     public function register(RegisterRequest $request): JsonResponse
     {
         try {
             $data = $request->validated();
 
+            if (User::where('email', $data['email'])->exists()) {
+                return ApiResource::error('The email address is already in use.', null, 422);
+            }
+
             $user = $this->authService->register($data);
 
-            // If registering as coach → pending approval → no token
-            if ($data['role'] === 'coach') {
+            // Case: Coach registration
+            if (isset($data['role']) && $data['role'] === 'coach') {
                 return ApiResource::success([
                     'status' => 'pending_approval',
                     'user' => new UserResource($user),
-                ], 'Coach account created and pending admin approval.');
+                ], 'Coach account created. Pending admin approval.', 201);
             }
 
-            // If a normal user → login immediately
+            // Case: Regular User
             $token = $user->createToken('auth_token')->plainTextToken;
 
             return ApiResource::success([
                 'user' => new UserResource($user->load('roles')),
                 'token' => $token,
-            ], 'Registration successful');
-        } catch (\Exception $e) {
-            return ApiResource::error('Registration failed: ' . $e->getMessage(), null, 500);
+            ], 'User registered successfully.', 201);
+
+        } catch (Exception $e) {
+            return ApiResource::error(
+                'Registration failed: ' . $e->getMessage(),
+                null,
+                500
+            );
         }
     }
 
@@ -53,39 +66,59 @@ class AuthController extends Controller
      */
     public function login(LoginRequest $request): JsonResponse
     {
-        $result = $this->authService->login(
-            $request->validated()['email'],
-            $request->validated()['password']
-        );
+        try {
+            $result = $this->authService->login(
+                $request->validated()['email'],
+                $request->validated()['password']
+            );
 
-        // Invalid credentials
-        if (!$result) { 
-            return ApiResource::error('Invalid credentials', null, 401);
+            if (!$result) { 
+                return ApiResource::error('Invalid email or password.', null, 401);
+            }
+
+            if (isset($result['error'])) {
+                return ApiResource::error($result['error'], null, 403);
+            }
+
+            return ApiResource::success([
+                'user' => new UserResource($result['user']),
+                'token' => $result['token'],
+            ], 'Login successful.', 200);
+
+        } catch (Exception $e) {
+            return ApiResource::error('An error occurred during login.', null, 500);
         }
-
-        // Error from service (role mismatch, not approved, etc.)
-        if (isset($result['error'])) {
-            return ApiResource::error($result['error'], null, 403);
-        }
-
-        return ApiResource::success([
-            'user' => new UserResource($result['user']),
-            'token' => $result['token'],
-        ], 'Login successful');
     }
 
+    /**
+     * Logout
+     */
     public function logout(): JsonResponse
     {
-        $this->authService->logout(auth()->user());
-        return ApiResource::success(null, 'Logout successful');
+        try {
+            $user = Auth::user();
+            if (!$user) return ApiResource::error('Unauthenticated.', null, 401);
+
+            $this->authService->logout($user);
+            return ApiResource::success(null, 'Logged out successfully.', 200);
+
+        } catch (Exception $e) {
+            return ApiResource::error('Logout failed.', null, 500);
+        }
     }
 
+    /**
+     * Get Current User
+     */
     public function me(): JsonResponse
     {
+        $user = Auth::user();
+        if (!$user) return ApiResource::error('Unauthenticated.', null, 401);
+
         return ApiResource::success(
-            new UserResource(auth()->user()->load('roles')),
-            'User retrieved successfully'
+            new UserResource($user->load('roles')),
+            'User profile retrieved.',
+            200
         );
     }
-    
 }
